@@ -362,11 +362,18 @@ async function joinAllVoice(vc, guildId) {
 
         conn.on('stateChange', (oldState, newState) => {
           console.log(`[Bot ${bot.botNum}] Voice connection state: ${oldState.status} ➔ ${newState.status}`);
+          
+          // Handle Ready state
+          if (newState.status === VoiceConnectionStatus.Ready) {
+            console.log(`[Bot ${bot.botNum}] ✅ Voice connection READY - Audio playback now possible!`);
+          }
+          
           if (newState.status === VoiceConnectionStatus.Disconnected) {
             setTimeout(() => {
               if (conn.state.status === VoiceConnectionStatus.Disconnected) {
                 conn.destroy();
                 bot.setConnection(null);
+                console.log(`[Bot ${bot.botNum}] Connection cleaned up after disconnect`);
               }
             }, 5000);
           }
@@ -411,37 +418,87 @@ function playAllEarrape() {
           return;
         }
 
-        // Stop existing player if any to prevent memory leaks and overlapping audio
-        const oldPlayer = bot.getPlayer();
-        if (oldPlayer) {
-          try {
-            oldPlayer.stop();
-          } catch (e) {}
+        // Wait for connection to be Ready before playing
+        if (conn.state.status !== VoiceConnectionStatus.Ready) {
+          console.warn(`[Bot ${bot.botNum}] Connection not ready yet (${conn.state.status}), waiting...`);
+          
+          // Set up a one-time listener for Ready state
+          const readyHandler = () => {
+            playAudioOnBot(bot, audioPath);
+            conn.off('stateChange', stateHandler);
+          };
+          
+          const stateHandler = (oldState, newState) => {
+            if (newState.status === VoiceConnectionStatus.Ready) {
+              readyHandler();
+            } else if (newState.status === VoiceConnectionStatus.Destroyed) {
+              conn.off('stateChange', stateHandler);
+            }
+          };
+          
+          conn.on('stateChange', stateHandler);
+          
+          // Timeout after 10 seconds
+          setTimeout(() => {
+            conn.off('stateChange', stateHandler);
+            if (conn.state.status !== VoiceConnectionStatus.Ready) {
+              console.error(`[Bot ${bot.botNum}] Connection timeout - not reaching Ready state`);
+            }
+          }, 10000);
+        } else {
+          playAudioOnBot(bot, audioPath);
         }
-
-        const resource = createAudioResource(audioPath, {
-          inlineVolume: true
-        });
-
-        if (resource.volume) {
-          resource.volume.setVolume(5.0);
-        }
-
-        const player = createAudioPlayer();
-        
-        player.on('error', (err) => {
-          console.error(`[Bot ${bot.botNum}] Audio Player Error:`, err.message);
-        });
-
-        player.play(resource);
-        conn.subscribe(player);
-        bot.setPlayer(player);
-        console.log(`[Bot ${bot.botNum}] PURE EARRAPE PLAYING 🔊🌋☢️`);
       } catch (err) {
         console.error(`[Bot ${bot.botNum}] Play error:`, err.message);
       }
-    }, index * 100);
+    }, index * 500);
   });
+}
+
+// Helper function to actually play audio
+function playAudioOnBot(bot, audioPath) {
+  try {
+    const conn = bot.getConnection();
+    if (!conn || conn.state.status !== VoiceConnectionStatus.Ready) {
+      console.error(`[Bot ${bot.botNum}] Connection not ready for playback!`);
+      return;
+    }
+
+    // Stop existing player if any to prevent memory leaks and overlapping audio
+    const oldPlayer = bot.getPlayer();
+    if (oldPlayer) {
+      try {
+        oldPlayer.stop();
+      } catch (e) {}
+    }
+
+    const resource = createAudioResource(audioPath, {
+      inlineVolume: true,
+      inputType: StreamType.Arbitrary
+    });
+
+    if (resource.volume) {
+      resource.volume.setVolume(5.0);
+    }
+
+    const player = createAudioPlayer();
+    
+    player.on('error', (err) => {
+      console.error(`[Bot ${bot.botNum}] Audio Player Error:`, err.message);
+    });
+
+    player.on('stateChange', (oldState, newState) => {
+      if (newState.status === AudioPlayerStatus.Playing) {
+        console.log(`[Bot ${bot.botNum}] PURE EARRAPE PLAYING 🔊🌋☢️`);
+      }
+    });
+
+    conn.subscribe(player);
+    player.play(resource);
+    bot.setPlayer(player);
+  } catch (err) {
+    console.error(`[Bot ${bot.botNum}] Play error:`, err.message);
+  }
 }
 
 function stopAllAudio() {
