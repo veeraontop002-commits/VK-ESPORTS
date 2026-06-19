@@ -319,20 +319,19 @@ tokens.forEach((token, index) => {
 // 🛠️ FLEET HELPER FUNCTIONS
 
 async function joinAllVoice(vc, guildId) {
-  console.log(`🚀 Fleet starting voice channel join sequence for ${vc.name}...`);
+  console.log(`🚀 Fleet starting voice channel join to ${vc.name}...`);
   
   clients.forEach((bot, index) => {
-    // Stagger connections much more (3 seconds apart instead of 1 second)
-    // This prevents Discord rate limiting and socket errors
+    // Stagger connections (no delay needed with new approach)
     setTimeout(async () => {
       attemptVoiceJoin(bot, vc, guildId, 0);
-    }, index * 3000);
+    }, index * 500);
   });
 }
 
-// Retry function for voice connection with exponential backoff
+// Simplified voice join with aggressive retry
 async function attemptVoiceJoin(bot, vc, guildId, retryCount = 0) {
-  const maxRetries = 3;
+  const maxRetries = 2;
   
   try {
     let guild = bot.client.guilds.cache.get(guildId);
@@ -340,30 +339,27 @@ async function attemptVoiceJoin(bot, vc, guildId, retryCount = 0) {
       guild = await bot.client.guilds.fetch(guildId).catch(() => null);
     }
     if (!guild) {
-      console.error(`[Bot ${bot.botNum}] Cannot find guild ${guildId}!`);
+      console.error(`[Bot ${bot.botNum}] Guild not found`);
       return;
     }
 
     const voiceAdapterCreator = guild.voiceAdapterCreator;
     if (!voiceAdapterCreator) {
-      console.error(`[Bot ${bot.botNum}] Voice adapter creator not available!`);
+      console.error(`[Bot ${bot.botNum}] Voice adapter not available`);
       return;
     }
 
-    let conn = bot.getConnection();
-    
-    // Reuse healthy connection if possible to prevent rate limits and race conditions
-    if (conn && conn.state.status !== VoiceConnectionStatus.Destroyed) {
-      if (conn.joinConfig.channelId === vc.id && conn.state.status === VoiceConnectionStatus.Ready) {
-        console.log(`[Bot ${bot.botNum}] Already in voice channel ${vc.name} and READY ✅`);
-        return;
-      }
-      // Destroy old/stuck connection before creating new one
-      conn.destroy();
+    // Destroy any existing connection first
+    let oldConn = bot.getConnection();
+    if (oldConn) {
+      try {
+        oldConn.destroy();
+      } catch (e) {}
       bot.setConnection(null);
     }
 
-    conn = joinVoiceChannel({
+    // Create fresh connection
+    const conn = joinVoiceChannel({
       channelId: vc.id,
       guildId: guildId,
       adapterCreator: voiceAdapterCreator,
@@ -371,101 +367,67 @@ async function attemptVoiceJoin(bot, vc, guildId, retryCount = 0) {
       group: bot.client.user.id
     });
 
-    let readyTimedOut = false;
-    let hasReachedReady = false;
+    // Store immediately - don't wait for ready
+    bot.setConnection(conn);
+    console.log(`[Bot ${bot.botNum}] ➡️ Joining ${vc.name}...`);
 
-    // 20 second timeout for reaching Ready state
-    const readyTimeout = setTimeout(() => {
-      if (!hasReachedReady) {
-        readyTimedOut = true;
-        console.warn(`[Bot ${bot.botNum}] Ready timeout (${conn.state.status})`);
-        
-        if (retryCount < maxRetries) {
-          console.log(`[Bot ${bot.botNum}] Retrying connection (attempt ${retryCount + 1}/${maxRetries})...`);
-          conn.destroy();
-          bot.setConnection(null);
-          
-          // Exponential backoff: 3s, 6s, 12s
-          const backoffDelay = 3000 * Math.pow(2, retryCount);
-          setTimeout(() => {
-            attemptVoiceJoin(bot, vc, guildId, retryCount + 1);
-          }, backoffDelay);
-        } else {
-          console.error(`[Bot ${bot.botNum}] Failed to connect after ${maxRetries} retries`);
-          conn.destroy();
-          bot.setConnection(null);
-        }
-      }
-    }, 20000);
+    let hasErrored = false;
+    let readyTimeout = null;
 
-    // Add robust error & state change listeners
     conn.on('error', (err) => {
-      console.error(`[Bot ${bot.botNum}] Voice Error: ${err.message}`);
-      
-      // Handle IP discovery error specifically
-      if (err.message.includes('IP discovery') && !readyTimedOut) {
-        readyTimedOut = true;
-        clearTimeout(readyTimeout);
+      if (!hasErrored) {
+        hasErrored = true;
+        console.error(`[Bot ${bot.botNum}] Voice Error: ${err.message}`);
         
+        if (readyTimeout) clearTimeout(readyTimeout);
+        
+        // Retry on error
         if (retryCount < maxRetries) {
-          console.log(`[Bot ${bot.botNum}] IP discovery failed, retrying (attempt ${retryCount + 1}/${maxRetries})...`);
-          conn.destroy();
-          bot.setConnection(null);
-          
-          const backoffDelay = 3000 * Math.pow(2, retryCount);
+          console.log(`[Bot ${bot.botNum}] 🔄 Retrying... (${retryCount + 1}/${maxRetries})`);
           setTimeout(() => {
             attemptVoiceJoin(bot, vc, guildId, retryCount + 1);
-          }, backoffDelay);
+          }, 1000);
         }
       }
     });
 
     conn.on('stateChange', (oldState, newState) => {
-      console.log(`[Bot ${bot.botNum}] Voice state: ${oldState.status} ➔ ${newState.status}`);
-      
       if (newState.status === VoiceConnectionStatus.Ready) {
-        hasReachedReady = true;
-        clearTimeout(readyTimeout);
-        console.log(`[Bot ${bot.botNum}] ✅ READY - Ready to play audio!`);
-      }
-      
-      if (newState.status === VoiceConnectionStatus.Disconnected) {
-        clearTimeout(readyTimeout);
-        setTimeout(() => {
-          if (conn.state.status === VoiceConnectionStatus.Disconnected) {
-            conn.destroy();
-            bot.setConnection(null);
-            console.log(`[Bot ${bot.botNum}] Connection cleaned up`);
-          }
-        }, 5000);
+        if (readyTimeout) clearTimeout(readyTimeout);
+        console.log(`[Bot ${bot.botNum}] ✅ READY`);
+      } else {
+        console.log(`[Bot ${bot.botNum}] ${newState.status}`);
       }
     });
 
-    bot.setConnection(conn);
-    console.log(`[Bot ${bot.botNum}] Joining ${vc.name}...`);
   } catch (err) {
-    console.error(`[Bot ${bot.botNum}] JOIN ERROR: ${err.message}`);
+    console.error(`[Bot ${bot.botNum}] Join Error: ${err.message}`);
     if (retryCount < maxRetries) {
-      const backoffDelay = 3000 * Math.pow(2, retryCount);
       setTimeout(() => {
         attemptVoiceJoin(bot, vc, guildId, retryCount + 1);
-      }, backoffDelay);
+      }, 1000);
     }
   }
 }
 
 function leaveAllVoice() {
+  console.log('🚪 Fleet leaving all voice channels...');
+  let leftCount = 0;
+  
   clients.forEach(bot => {
     try {
       const conn = bot.getConnection();
       if (conn) {
         conn.destroy();
         bot.setConnection(null);
+        leftCount++;
       }
     } catch (err) {
-      console.error(`[Bot ${bot.botNum}] LEAVE ERROR:`, err.message);
+      console.error(`[Bot ${bot.botNum}] Leave error: ${err.message}`);
     }
   });
+  
+  console.log(`✅ ${leftCount} bots left voice channels`);
 }
 
 function playAllEarrape() {
@@ -475,77 +437,38 @@ function playAllEarrape() {
     return;
   }
 
-  console.log('🔊 Starting audio playback on all connected bots...');
-  let readyBots = 0;
+  console.log('� Playing audio on all bots NOW...');
+  let playCount = 0;
 
+  // Play on all bots that have connections immediately
   clients.forEach((bot, index) => {
-    // Stagger slightly to avoid thundering herd
     setTimeout(() => {
       const conn = bot.getConnection();
+      
       if (!conn || conn.state.status === VoiceConnectionStatus.Destroyed) {
-        console.warn(`[Bot ${bot.botNum}] Cannot play: No voice connection`);
+        console.warn(`[Bot ${bot.botNum}] No connection available`);
         return;
       }
 
-      // If already ready, play immediately
-      if (conn.state.status === VoiceConnectionStatus.Ready) {
-        console.log(`[Bot ${bot.botNum}] Connection is Ready, playing audio...`);
-        playAudioOnBot(bot, audioPath);
-        readyBots++;
-      } else {
-        // Wait up to 15 seconds for Ready state
-        console.log(`[Bot ${bot.botNum}] Waiting for Ready state (current: ${conn.state.status})...`);
-        let stateChangeHandler = null;
-        let timeoutHandle = null;
-        let played = false;
-
-        const cleanup = () => {
-          if (stateChangeHandler && conn) {
-            conn.off('stateChange', stateChangeHandler);
-          }
-          if (timeoutHandle) {
-            clearTimeout(timeoutHandle);
-          }
-        };
-
-        stateChangeHandler = (oldState, newState) => {
-          if (newState.status === VoiceConnectionStatus.Ready && !played) {
-            played = true;
-            console.log(`[Bot ${bot.botNum}] Ready! Playing audio...`);
-            playAudioOnBot(bot, audioPath);
-            readyBots++;
-            cleanup();
-          }
-        };
-
-        conn.on('stateChange', stateChangeHandler);
-
-        timeoutHandle = setTimeout(() => {
-          if (!played) {
-            console.warn(`[Bot ${bot.botNum}] Timeout waiting for Ready state`);
-            cleanup();
-          }
-        }, 15000);
-      }
-    }, index * 200);
+      // Play regardless of state - discord.js will handle it
+      playAudioOnBot(bot, audioPath);
+      playCount++;
+    }, index * 100);
   });
 
-  // Report after all attempts
-  setTimeout(() => {
-    console.log(`✅ Audio playback initiated on ${readyBots} bot(s)`);
-  }, 5000);
+  console.log(`🎵 Audio playback initiated on ${playCount} bots`);
 }
 
-// Helper function to actually play audio
+// Ultra-simple audio playback
 function playAudioOnBot(bot, audioPath) {
   try {
     const conn = bot.getConnection();
-    if (!conn || conn.state.status !== VoiceConnectionStatus.Ready) {
-      console.error(`[Bot ${bot.botNum}] Connection not Ready!`);
+    if (!conn) {
+      console.warn(`[Bot ${bot.botNum}] Connection lost`);
       return;
     }
 
-    // Stop existing player
+    // Stop old player
     const oldPlayer = bot.getPlayer();
     if (oldPlayer) {
       try {
@@ -553,6 +476,7 @@ function playAudioOnBot(bot, audioPath) {
       } catch (e) {}
     }
 
+    // Create resource
     const resource = createAudioResource(audioPath, {
       inlineVolume: true,
       inputType: StreamType.Arbitrary
@@ -562,41 +486,47 @@ function playAudioOnBot(bot, audioPath) {
       resource.volume.setVolume(5.0);
     }
 
+    // Create player
     const player = createAudioPlayer();
-    
-    let playStarted = false;
 
     player.on('error', (err) => {
-      console.error(`[Bot ${bot.botNum}] Audio Player Error: ${err.message}`);
+      console.error(`[Bot ${bot.botNum}] Player error: ${err.message}`);
     });
 
     player.on('stateChange', (oldState, newState) => {
-      if (newState.status === AudioPlayerStatus.Playing && !playStarted) {
-        playStarted = true;
+      if (newState.status === AudioPlayerStatus.Playing) {
         console.log(`[Bot ${bot.botNum}] 🔊 PLAYING EARRAPE 🌋☢️`);
       }
     });
 
+    // Subscribe and play
     conn.subscribe(player);
     player.play(resource);
     bot.setPlayer(player);
+    
   } catch (err) {
     console.error(`[Bot ${bot.botNum}] Play error: ${err.message}`);
   }
 }
 
 function stopAllAudio() {
+  console.log('⏹️ Stopping all audio playback...');
+  let stoppedCount = 0;
+  
   clients.forEach(bot => {
     try {
       const player = bot.getPlayer();
       if (player) {
         player.stop();
         bot.setPlayer(null);
+        stoppedCount++;
       }
     } catch (err) {
-      console.error(`[Bot ${bot.botNum}] STOP ERROR:`, err.message);
+      console.error(`[Bot ${bot.botNum}] Stop error: ${err.message}`);
     }
   });
+  
+  console.log(`✅ Stopped audio on ${stoppedCount} bots`);
 }
 
 async function executeSpam(targetMentionOrId, countVal, channel) {
