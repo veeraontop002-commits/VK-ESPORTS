@@ -62,6 +62,37 @@ function saveAuthorizedUsers() {
 
 loadAuthorizedUsers();
 
+// 🛡️ SAFE DISCORD MESSAGE HELPERS (Prevents crashes from "Missing Permissions" / 50013 errors)
+async function safeReply(message, content) {
+  try {
+    return await message.reply(content);
+  } catch (err) {
+    console.error(`[SafeReply Error] Failed to reply in channel ${message.channel?.id || 'unknown'}: ${err.message}`);
+    return null;
+  }
+}
+
+async function safeSend(channel, content) {
+  try {
+    return await channel.send(content);
+  } catch (err) {
+    console.error(`[SafeSend Error] Failed to send message in channel ${channel?.id || 'unknown'}: ${err.message}`);
+    return null;
+  }
+}
+
+async function safeInteractionReply(interaction, options) {
+  try {
+    if (interaction.replied || interaction.deferred) {
+      return await interaction.followUp(options);
+    }
+    return await interaction.reply(options);
+  } catch (err) {
+    console.error(`[SafeInteractionReply Error] Failed to reply to interaction: ${err.message}`);
+    return null;
+  }
+}
+
 const tokens = [
   process.env.TOKEN1, process.env.TOKEN2, process.env.TOKEN3, process.env.TOKEN4, process.env.TOKEN5,
   process.env.TOKEN6, process.env.TOKEN7, process.env.TOKEN8, process.env.TOKEN9, process.env.TOKEN10
@@ -124,27 +155,27 @@ tokens.forEach((token, index) => {
 
       // 🛡️ OWNER-ONLY COMMANDS
       if (command === 'auth') {
-        if (!isOwner) return message.reply('❌ Only the fleet owner can authorize users!');
+        if (!isOwner) return safeReply(message, '❌ Only the fleet owner can authorize users!');
         const target = message.mentions.users.first() || (args[0] ? await client.users.fetch(args[0]).catch(() => null) : null);
-        if (!target) return message.reply('❌ Usage: `!auth @user` or `!auth <userID>`');
+        if (!target) return safeReply(message, '❌ Usage: `!auth @user` or `!auth <userID>`');
         
         authorizedUsers.add(target.id);
         saveAuthorizedUsers();
-        return message.reply(`✅ **${target.tag}** (${target.id}) has been authorized!`);
+        return safeReply(message, `✅ **${target.tag}** (${target.id}) has been authorized!`);
       }
 
       if (command === 'unauth') {
-        if (!isOwner) return message.reply('❌ Only the fleet owner can unauthorize users!');
+        if (!isOwner) return safeReply(message, '❌ Only the fleet owner can unauthorize users!');
         const target = message.mentions.users.first() || (args[0] ? await client.users.fetch(args[0]).catch(() => null) : null);
-        if (!target) return message.reply('❌ Usage: `!unauth @user` or `!unauth <userID>`');
+        if (!target) return safeReply(message, '❌ Usage: `!unauth @user` or `!unauth <userID>`');
         
-        if (target.id === OWNER_ID) return message.reply('❌ You cannot unauthorize the owner!');
+        if (target.id === OWNER_ID) return safeReply(message, '❌ You cannot unauthorize the owner!');
         
         if (authorizedUsers.delete(target.id)) {
           saveAuthorizedUsers();
-          return message.reply(`✅ **${target.tag}** (${target.id}) has been unauthorized.`);
+          return safeReply(message, `✅ **${target.tag}** (${target.id}) has been unauthorized.`);
         } else {
-          return message.reply(`❌ User is not authorized.`);
+          return safeReply(message, `❌ User is not authorized.`);
         }
       }
 
@@ -155,7 +186,7 @@ tokens.forEach((token, index) => {
           .setDescription(`**Owner:** <@${OWNER_ID}>\n\n**Authorized Users:**\n${list}`)
           .setColor(0x00ae86)
           .setTimestamp();
-        return message.reply({ embeds: [embed] });
+        return safeReply(message, { embeds: [embed] });
       }
 
       // ⚡ INTERACTIVE CONTROL PANEL
@@ -180,56 +211,56 @@ tokens.forEach((token, index) => {
           new ButtonBuilder().setCustomId('fleet_spam_btn').setLabel('Spam Target').setStyle(ButtonStyle.Success).setEmoji('🔥')
         );
 
-        return message.reply({ embeds: [embed], components: [row1] });
+        return safeReply(message, { embeds: [embed], components: [row1] });
       }
 
       // 🚀 FLEET AUDIO & VOICE CONTROL COMMANDS
       if (command === 'vkvc' || command === 'joinall') {
         const vc = message.member?.voice?.channel;
-        if (!vc) return message.reply('❌ You must be in a voice channel first!');
-        message.reply(`🚀 Fleet joining voice channel **${vc.name}**...`);
+        if (!vc) return safeReply(message, '❌ You must be in a voice channel first!');
+        safeReply(message, `🚀 Fleet joining voice channel **${vc.name}**...`);
         joinAllVoice(vc, message.guild.id);
       }
 
       if (command === 'vklv' || command === 'leaveall') {
-        message.reply('🚪 Fleet leaving all voice channels...');
+        safeReply(message, '🚪 Fleet leaving all voice channels...');
         leaveAllVoice();
       }
 
       if (command === 'vkst' || command === 'stall' || command === 'earrape') {
-        message.reply('🔊🌋 Playing NUCLEAR STACKED EARRAPE across all bots...');
+        safeReply(message, '🔊🌋 Playing NUCLEAR STACKED EARRAPE across all bots...');
         playAllEarrape();
       }
 
       if (command === 'vksp' || command === 'stopall') {
-        message.reply('⏹️ Stopping audio playbacks...');
+        safeReply(message, '⏹️ Stopping audio playbacks...');
         stopAllAudio();
       }
 
       // 🔥 SPAM COMMANDS
       if (command === 'spam') {
         const target = args[0];
-        if (!target) return message.reply('❌ Usage: `!spam <@user or userId> [count]`');
+        if (!target) return safeReply(message, '❌ Usage: `!spam <@user or userId> [count]`');
         const count = args[1] || 5;
-        message.reply(`🔥 Initiating multi-bot spam targeting ${target} (Count: ${count})...`);
+        safeReply(message, `🔥 Initiating multi-bot spam targeting ${target} (Count: ${count})...`);
         executeSpam(target, count, message.channel);
       }
 
       if (command === 'dmspam') {
         const target = args[0];
-        if (!target) return message.reply('❌ Usage: `!dmspam <userId or @user> [count]`');
+        if (!target) return safeReply(message, '❌ Usage: `!dmspam <userId or @user> [count]`');
         const count = args[1] || 5;
-        message.reply(`💬 Initiating direct message spam targeting ${target} (Count: ${count})...`);
+        safeReply(message, `💬 Initiating direct message spam targeting ${target} (Count: ${count})...`);
         executeDmSpam(target, count);
       }
 
       if (command === 'say') {
         const targetChannel = message.mentions.channels.first() || (args[0] ? await client.channels.fetch(args[0]).catch(() => null) : null);
-        if (!targetChannel) return message.reply('❌ Usage: `!say <#channel or channelID> <message...>`');
+        if (!targetChannel) return safeReply(message, '❌ Usage: `!say <#channel or channelID> <message...>`');
         const content = args.slice(1).join(' ');
-        if (!content) return message.reply('❌ Please specify a message to send.');
+        if (!content) return safeReply(message, '❌ Please specify a message to send.');
         
-        await targetChannel.send(content);
+        await safeSend(targetChannel, content);
         if (message.deletable) await message.delete().catch(() => null);
       }
     });
@@ -246,58 +277,62 @@ tokens.forEach((token, index) => {
       const authorized = isOwner || hasControRole || authorizedUsers.has(userId);
 
       if (!authorized) {
-        return interaction.reply({ content: '❌ You are not authorized to control the fleet!', ephemeral: true });
+        return safeInteractionReply(interaction, { content: '❌ You are not authorized to control the fleet!', ephemeral: true });
       }
 
       if (interaction.isButton()) {
         if (interaction.customId === 'fleet_join') {
           const member = await interaction.guild.members.fetch(userId).catch(() => null);
           const vc = member?.voice?.channel;
-          if (!vc) return interaction.reply({ content: '❌ You must be in a voice channel first!', ephemeral: true });
+          if (!vc) return safeInteractionReply(interaction, { content: '❌ You must be in a voice channel first!', ephemeral: true });
           
-          await interaction.reply({ content: `🚀 Fleet is joining **${vc.name}**...`, ephemeral: true });
+          await safeInteractionReply(interaction, { content: `🚀 Fleet is joining **${vc.name}**...`, ephemeral: true });
           joinAllVoice(vc, interaction.guild.id);
         }
 
         if (interaction.customId === 'fleet_earrape') {
-          await interaction.reply({ content: '🔊🌋 Playing NUCLEAR STACKED EARRAPE...', ephemeral: true });
+          await safeInteractionReply(interaction, { content: '🔊🌋 Playing NUCLEAR STACKED EARRAPE...', ephemeral: true });
           playAllEarrape();
         }
 
         if (interaction.customId === 'fleet_stop') {
-          await interaction.reply({ content: '⏹️ Stopping audio playbacks...', ephemeral: true });
+          await safeInteractionReply(interaction, { content: '⏹️ Stopping audio playbacks...', ephemeral: true });
           stopAllAudio();
         }
 
         if (interaction.customId === 'fleet_leave') {
-          await interaction.reply({ content: '🚪 Fleet is leaving voice channels...', ephemeral: true });
+          await safeInteractionReply(interaction, { content: '🚪 Fleet is leaving voice channels...', ephemeral: true });
           leaveAllVoice();
         }
 
         if (interaction.customId === 'fleet_spam_btn') {
-          const modal = new ModalBuilder()
-            .setCustomId('spam_modal')
-            .setTitle('Fleet Spam Operation');
+          try {
+            const modal = new ModalBuilder()
+              .setCustomId('spam_modal')
+              .setTitle('Fleet Spam Operation');
 
-          const targetInput = new TextInputBuilder()
-            .setCustomId('spam_target')
-            .setLabel('Target ID or @Mention')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter User ID or Mention')
-            .setRequired(true);
+            const targetInput = new TextInputBuilder()
+              .setCustomId('spam_target')
+              .setLabel('Target ID or @Mention')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('Enter User ID or Mention')
+              .setRequired(true);
 
-          const countInput = new TextInputBuilder()
-            .setCustomId('spam_count')
-            .setLabel('Spam Count (Max 50)')
-            .setStyle(TextInputStyle.Short)
-            .setValue('5')
-            .setRequired(true);
+            const countInput = new TextInputBuilder()
+              .setCustomId('spam_count')
+              .setLabel('Spam Count (Max 50)')
+              .setStyle(TextInputStyle.Short)
+              .setValue('5')
+              .setRequired(true);
 
-          const firstActionRow = new ActionRowBuilder().addComponents(targetInput);
-          const secondActionRow = new ActionRowBuilder().addComponents(countInput);
+            const firstActionRow = new ActionRowBuilder().addComponents(targetInput);
+            const secondActionRow = new ActionRowBuilder().addComponents(countInput);
 
-          modal.addComponents(firstActionRow, secondActionRow);
-          await interaction.showModal(modal);
+            modal.addComponents(firstActionRow, secondActionRow);
+            await interaction.showModal(modal);
+          } catch (err) {
+            console.error(`Failed to show modal: ${err.message}`);
+          }
         }
       }
 
@@ -306,7 +341,7 @@ tokens.forEach((token, index) => {
           const target = interaction.fields.getTextInputValue('spam_target');
           const count = interaction.fields.getTextInputValue('spam_count');
           
-          await interaction.reply({ content: `🔥 Initiating multi-bot spam targeting ${target} (Count: ${count})...`, ephemeral: true });
+          await safeInteractionReply(interaction, { content: `🔥 Initiating multi-bot spam targeting ${target} (Count: ${count})...`, ephemeral: true });
           executeSpam(target, count, interaction.channel);
         }
       }
@@ -318,20 +353,23 @@ tokens.forEach((token, index) => {
 
 // 🛠️ FLEET HELPER FUNCTIONS
 
+let sharedPlayer = null;
+
 async function joinAllVoice(vc, guildId) {
   console.log(`🚀 Fleet starting voice channel join to ${vc.name}...`);
   
   clients.forEach((bot, index) => {
-    // Stagger connections (no delay needed with new approach)
+    // Stagger connections to 150ms for extremely fast joining without rate limits
     setTimeout(async () => {
       attemptVoiceJoin(bot, vc, guildId, 0);
-    }, index * 500);
+    }, index * 150);
   });
 }
 
-// Simplified voice join with aggressive retry
+// Simplified voice join with aggressive retry and timeout handling
 async function attemptVoiceJoin(bot, vc, guildId, retryCount = 0) {
-  const maxRetries = 2;
+  const maxRetries = 3;
+  let readyTimeout = null;
   
   try {
     let guild = bot.client.guilds.cache.get(guildId);
@@ -372,14 +410,30 @@ async function attemptVoiceJoin(bot, vc, guildId, retryCount = 0) {
     console.log(`[Bot ${bot.botNum}] ➡️ Joining ${vc.name}...`);
 
     let hasErrored = false;
-    let readyTimeout = null;
+
+    // 6 second timeout to prevent connection getting stuck in connecting state
+    readyTimeout = setTimeout(() => {
+      if (conn.state.status !== VoiceConnectionStatus.Ready && !hasErrored) {
+        hasErrored = true;
+        console.warn(`[Bot ${bot.botNum}] Voice connection timeout in state: ${conn.state.status}. Retrying...`);
+        try {
+          conn.destroy();
+        } catch (e) {}
+        bot.setConnection(null);
+        if (retryCount < maxRetries) {
+          attemptVoiceJoin(bot, vc, guildId, retryCount + 1);
+        }
+      }
+    }, 6000);
 
     conn.on('error', (err) => {
+      if (readyTimeout) {
+        clearTimeout(readyTimeout);
+        readyTimeout = null;
+      }
       if (!hasErrored) {
         hasErrored = true;
         console.error(`[Bot ${bot.botNum}] Voice Error: ${err.message}`);
-        
-        if (readyTimeout) clearTimeout(readyTimeout);
         
         // Retry on error
         if (retryCount < maxRetries) {
@@ -393,14 +447,38 @@ async function attemptVoiceJoin(bot, vc, guildId, retryCount = 0) {
 
     conn.on('stateChange', (oldState, newState) => {
       if (newState.status === VoiceConnectionStatus.Ready) {
-        if (readyTimeout) clearTimeout(readyTimeout);
+        if (readyTimeout) {
+          clearTimeout(readyTimeout);
+          readyTimeout = null;
+        }
         console.log(`[Bot ${bot.botNum}] ✅ READY`);
+        
+        // Auto-subscribe to shared player if it is currently playing
+        if (sharedPlayer && sharedPlayer.state.status === AudioPlayerStatus.Playing) {
+          console.log(`[Bot ${bot.botNum}] 🔄 Subscribing to ongoing shared playback`);
+          try {
+            conn.subscribe(sharedPlayer);
+            bot.setPlayer(sharedPlayer);
+          } catch (e) {
+            console.error(`[Bot ${bot.botNum}] Subscription error:`, e.message);
+          }
+        }
+      } else if (newState.status === VoiceConnectionStatus.Destroyed) {
+        if (readyTimeout) {
+          clearTimeout(readyTimeout);
+          readyTimeout = null;
+        }
+        console.log(`[Bot ${bot.botNum}] 🚪 Connection Destroyed`);
       } else {
-        console.log(`[Bot ${bot.botNum}] ${newState.status}`);
+        console.log(`[Bot ${bot.botNum}] State: ${newState.status}`);
       }
     });
 
   } catch (err) {
+    if (readyTimeout) {
+      clearTimeout(readyTimeout);
+      readyTimeout = null;
+    }
     console.error(`[Bot ${bot.botNum}] Join Error: ${err.message}`);
     if (retryCount < maxRetries) {
       setTimeout(() => {
@@ -427,6 +505,14 @@ function leaveAllVoice() {
     }
   });
   
+  // Stop and clear shared player
+  if (sharedPlayer) {
+    try {
+      sharedPlayer.stop(true);
+    } catch (e) {}
+    sharedPlayer = null;
+  }
+  
   console.log(`✅ ${leftCount} bots left voice channels`);
 }
 
@@ -437,96 +523,77 @@ function playAllEarrape() {
     return;
   }
 
-  console.log('� Playing audio on all bots NOW...');
-  let playCount = 0;
+  console.log('📢 Playing audio on all bots using a single SHARED PLAYER...');
 
-  // Play on all bots that have connections immediately
-  clients.forEach((bot, index) => {
-    setTimeout(() => {
-      const conn = bot.getConnection();
-      
-      if (!conn || conn.state.status === VoiceConnectionStatus.Destroyed) {
-        console.warn(`[Bot ${bot.botNum}] No connection available`);
-        return;
-      }
+  // 1. Stop existing player if any
+  if (sharedPlayer) {
+    try {
+      sharedPlayer.stop(true);
+    } catch (e) {}
+  }
 
-      // Play regardless of state - discord.js will handle it
-      playAudioOnBot(bot, audioPath);
-      playCount++;
-    }, index * 100);
+  // 2. Create a new shared player
+  sharedPlayer = createAudioPlayer();
+
+  sharedPlayer.on('error', (err) => {
+    console.error(`[Shared Player] Error: ${err.message}`);
   });
 
-  console.log(`🎵 Audio playback initiated on ${playCount} bots`);
-}
-
-// Ultra-simple audio playback
-function playAudioOnBot(bot, audioPath) {
-  try {
-    const conn = bot.getConnection();
-    if (!conn) {
-      console.warn(`[Bot ${bot.botNum}] Connection lost`);
-      return;
+  sharedPlayer.on('stateChange', (oldState, newState) => {
+    if (newState.status === AudioPlayerStatus.Playing) {
+      console.log(`[Shared Player] 🔊 PLAYING EARRAPE 🌋☢️`);
     }
+  });
 
-    // Stop old player
-    const oldPlayer = bot.getPlayer();
-    if (oldPlayer) {
-      try {
-        oldPlayer.stop();
-      } catch (e) {}
-    }
+  // 3. Create the audio resource once
+  const resource = createAudioResource(audioPath, {
+    inlineVolume: true,
+    inputType: StreamType.Arbitrary
+  });
 
-    // Create resource
-    const resource = createAudioResource(audioPath, {
-      inlineVolume: true,
-      inputType: StreamType.Arbitrary
-    });
-
-    if (resource.volume) {
-      resource.volume.setVolume(5.0);
-    }
-
-    // Create player
-    const player = createAudioPlayer();
-
-    player.on('error', (err) => {
-      console.error(`[Bot ${bot.botNum}] Player error: ${err.message}`);
-    });
-
-    player.on('stateChange', (oldState, newState) => {
-      if (newState.status === AudioPlayerStatus.Playing) {
-        console.log(`[Bot ${bot.botNum}] 🔊 PLAYING EARRAPE 🌋☢️`);
-      }
-    });
-
-    // Subscribe and play
-    conn.subscribe(player);
-    player.play(resource);
-    bot.setPlayer(player);
-    
-  } catch (err) {
-    console.error(`[Bot ${bot.botNum}] Play error: ${err.message}`);
+  if (resource.volume) {
+    // 5.0 volume boost for earrape
+    resource.volume.setVolume(5.0);
   }
+
+  // 4. Subscribe all active bot connections to this shared player
+  let playCount = 0;
+  clients.forEach((bot) => {
+    const conn = bot.getConnection();
+    if (conn && conn.state.status === VoiceConnectionStatus.Ready) {
+      try {
+        conn.subscribe(sharedPlayer);
+        bot.setPlayer(sharedPlayer);
+        playCount++;
+      } catch (err) {
+        console.error(`[Bot ${bot.botNum}] Failed to subscribe: ${err.message}`);
+      }
+    } else {
+      console.warn(`[Bot ${bot.botNum}] Connection not ready (status: ${conn ? conn.state.status : 'No connection'})`);
+    }
+  });
+
+  // 5. Start playback
+  sharedPlayer.play(resource);
+  console.log(`🎵 Audio playback initiated on ${playCount} bots via shared player`);
 }
 
 function stopAllAudio() {
   console.log('⏹️ Stopping all audio playback...');
-  let stoppedCount = 0;
+  if (sharedPlayer) {
+    try {
+      sharedPlayer.stop(true);
+      sharedPlayer = null;
+    } catch (err) {
+      console.error(`Error stopping shared player: ${err.message}`);
+    }
+  }
   
   clients.forEach(bot => {
-    try {
-      const player = bot.getPlayer();
-      if (player) {
-        player.stop();
-        bot.setPlayer(null);
-        stoppedCount++;
-      }
-    } catch (err) {
-      console.error(`[Bot ${bot.botNum}] Stop error: ${err.message}`);
-    }
+    bot.setPlayer(null);
   });
   
-  console.log(`✅ Stopped audio on ${stoppedCount} bots`);
+  console.log(`✅ Stopped audio on all bots`);
 }
 
 async function executeSpam(targetMentionOrId, countVal, channel) {
@@ -540,7 +607,7 @@ async function executeSpam(targetMentionOrId, countVal, channel) {
     clients.forEach((bot, botIdx) => {
       setTimeout(async () => {
         try {
-          const chan = await bot.client.channels.fetch(channel.id);
+          const chan = await bot.client.channels.fetch(channel.id).catch(() => null);
           if (chan) {
             await chan.send(spamMessage);
           }
@@ -562,9 +629,9 @@ async function executeDmSpam(targetUserId, countVal) {
     clients.forEach((bot, botIdx) => {
       setTimeout(async () => {
         try {
-          const user = await bot.client.users.fetch(cleanId);
+          const user = await bot.client.users.fetch(cleanId).catch(() => null);
           if (user) {
-            await user.send(`*Message could not be loaded*`);
+            await user.send(`*Message could not be loaded*`).catch(() => null);
           }
         } catch (err) {
           console.error(`[Bot ${botIdx + 1}] DM Spam error:`, err.message);
