@@ -34,7 +34,7 @@ http.createServer((req, res) => {
 }).listen(PORT);
 
 const OWNER_ID = process.env.OWNER_ID || "1434471542187884565";
-const CONTRO_ROLE_ID = "1507748485309403378";
+const CONTRO_ROLE_ID = "1555822883761037312";
 const authorizedFilePath = path.join(__dirname, 'authorized.json');
 let authorizedUsers = new Set();
 
