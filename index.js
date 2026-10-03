@@ -215,24 +215,24 @@ tokens.forEach((token, index) => {
       }
 
       // 🚀 FLEET AUDIO & VOICE CONTROL COMMANDS
-      if (command === 'vkvc' || command === 'joinall') {
+      if (command === 'alvc' || command === 'joinall') {
         const vc = message.member?.voice?.channel;
         if (!vc) return safeReply(message, '❌ You must be in a voice channel first!');
         safeReply(message, `🚀 Fleet joining voice channel **${vc.name}**...`);
         joinAllVoice(vc, message.guild.id);
       }
 
-      if (command === 'vklv' || command === 'leaveall') {
+      if (command === 'allv' || command === 'leaveall') {
         safeReply(message, '🚪 Fleet leaving all voice channels...');
         leaveAllVoice();
       }
 
-      if (command === 'vkst' || command === 'stall' || command === 'earrape') {
+      if (command === 'alst' || command === 'stall' || command === 'earrape') {
         safeReply(message, '🔊🌋 Playing NUCLEAR STACKED EARRAPE across all bots...');
         playAllEarrape();
       }
 
-      if (command === 'vksp' || command === 'stopall') {
+      if (command === 'alsp' || command === 'stopall') {
         safeReply(message, '⏹️ Stopping audio playbacks...');
         stopAllAudio();
       }
